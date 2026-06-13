@@ -2,14 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Chessground } from '@lichess-org/chessground'
 import type { Api } from '@lichess-org/chessground/api'
 import type { Key } from '@lichess-org/chessground/types'
+import { io } from 'socket.io-client'
 import '@lichess-org/chessground/assets/chessground.base.css'
 import '@lichess-org/chessground/assets/chessground.brown.css'
 import '@lichess-org/chessground/assets/chessground.cburnett.css'
 
 const apiBaseUrl = 'http://localhost:3001'
+const socketUrl = 'http://localhost:3001'
 const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
+type EngineKind = 'random-v1' | 'material-v1' | 'minimax-v1' | 'minimax-v2'
+
 type MatchState = {
+  blackEngineKind: EngineKind
+  engineOptions: {
+    kind: EngineKind
+    name: string
+  }[]
   evalAfter: number
   fen: string
   isRunning: boolean
@@ -23,6 +32,7 @@ type MatchState = {
   result: string | null
   status: string
   turn: 'White' | 'Black'
+  whiteEngineKind: EngineKind
 }
 
 type GameSummary = {
@@ -52,6 +62,13 @@ export default function ChessBoard() {
   const groundRef = useRef<Api | null>(null)
   const [games, setGames] = useState<GameSummary[]>([])
   const [match, setMatch] = useState<MatchState>({
+    blackEngineKind: 'minimax-v2',
+    engineOptions: [
+      { kind: 'random-v1', name: 'Random v1' },
+      { kind: 'material-v1', name: 'Material v1' },
+      { kind: 'minimax-v1', name: 'Minimax 1' },
+      { kind: 'minimax-v2', name: 'Minimax 2' },
+    ],
     evalAfter: 0,
     fen: startFen,
     isRunning: false,
@@ -61,15 +78,11 @@ export default function ChessBoard() {
     result: null,
     status: 'Loading.',
     turn: 'White',
+    whiteEngineKind: 'minimax-v2',
   })
   const [selectedGame, setSelectedGame] = useState<GameDetail | null>(null)
 
-  const loadMatch = useCallback(async (path = 'state') => {
-    const response = await fetch(`${apiBaseUrl}/match/${path}`, {
-      method: path === 'state' ? 'GET' : 'POST',
-    })
-    const nextMatch = (await response.json()) as MatchState
-
+  const setMatchState = useCallback((nextMatch: MatchState) => {
     groundRef.current?.set({
       fen: nextMatch.fen,
       lastMove: nextMatch.lastMove
@@ -85,6 +98,25 @@ export default function ChessBoard() {
 
     setMatch(nextMatch)
   }, [])
+
+  const loadMatch = useCallback(async (path = 'state') => {
+    const response = await fetch(`${apiBaseUrl}/match/${path}`, {
+      method: path === 'state' ? 'GET' : 'POST',
+    })
+    await response.json()
+  }, [])
+
+  const setEngine = useCallback(async (side: 'white' | 'black', kind: EngineKind) => {
+    const response = await fetch(`${apiBaseUrl}/match/engine`, {
+      body: JSON.stringify({ kind, side }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    })
+
+    setMatchState((await response.json()) as MatchState)
+  }, [setMatchState])
 
   const loadGames = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/games`)
@@ -121,18 +153,18 @@ export default function ChessBoard() {
   }, [])
 
   useEffect(() => {
-    const firstLoad = setTimeout(() => {
-      void loadMatch()
-    }, 0)
-    const interval = setInterval(() => {
-      void loadMatch()
-    }, 500)
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+    })
+
+    socket.on('match/state', (nextMatch: MatchState) => {
+      setMatchState(nextMatch)
+    })
 
     return () => {
-      clearTimeout(firstLoad)
-      clearInterval(interval)
+      socket.disconnect()
     }
-  }, [loadMatch])
+  }, [setMatchState])
 
   useEffect(() => {
     const firstLoad = setTimeout(() => {
@@ -190,6 +222,40 @@ export default function ChessBoard() {
             >
               Flip board
             </button>
+          </div>
+
+          <div className="engine-controls">
+            <label>
+              <span>White</span>
+              <select
+                value={match.whiteEngineKind}
+                onChange={(event) => {
+                  void setEngine('white', event.target.value as EngineKind)
+                }}
+              >
+                {match.engineOptions.map((engine) => (
+                  <option key={engine.kind} value={engine.kind}>
+                    {engine.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Black</span>
+              <select
+                value={match.blackEngineKind}
+                onChange={(event) => {
+                  void setEngine('black', event.target.value as EngineKind)
+                }}
+              >
+                {match.engineOptions.map((engine) => (
+                  <option key={engine.kind} value={engine.kind}>
+                    {engine.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <dl className="game-info">
