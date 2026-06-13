@@ -71,7 +71,9 @@
   color: #f8fafc;
 }
 
-.fen-row dd {
+.pgn-row dd {
+  max-height: 160px;
+  overflow: auto;
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85rem;

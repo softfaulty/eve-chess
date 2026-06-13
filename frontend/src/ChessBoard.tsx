@@ -1,80 +1,64 @@
-import { useEffect, useRef, useState } from 'react'
-import { Chess } from 'chess.js'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Chessground } from '@lichess-org/chessground'
 import type { Api } from '@lichess-org/chessground/api'
-import type { Color, Dests, Key } from '@lichess-org/chessground/types'
+import type { Key } from '@lichess-org/chessground/types'
 import '@lichess-org/chessground/assets/chessground.base.css'
 import '@lichess-org/chessground/assets/chessground.brown.css'
 import '@lichess-org/chessground/assets/chessground.cburnett.css'
 
-const startingFen = new Chess().fen()
+const apiUrl = 'http://localhost:3001/match'
+const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
-function turnColor(game: Chess): Color {
-  return game.turn() === 'w' ? 'white' : 'black'
-}
-
-function toDests(game: Chess): Dests {
-  const dests: Dests = new Map()
-
-  for (const move of game.moves({ verbose: true })) {
-    const from = move.from as Key
-    const to = move.to as Key
-    const targets = dests.get(from)
-
-    if (targets) {
-      targets.push(to)
-    } else {
-      dests.set(from, [to])
-    }
-  }
-
-  return dests
+type MatchState = {
+  fen: string
+  isRunning: boolean
+  lastMove: {
+    from: string
+    san: string
+    to: string
+  } | null
+  moveCount: number
+  pgn: string
+  result: string | null
+  status: string
+  turn: 'White' | 'Black'
 }
 
 export default function ChessBoard() {
   const boardRef = useRef<HTMLDivElement | null>(null)
   const groundRef = useRef<Api | null>(null)
-  const gameRef = useRef(new Chess())
-  const lastMoveRef = useRef<Key[] | undefined>(undefined)
-  const [position, setPosition] = useState({
-    fen: startingFen,
-    status: 'Game in progress.',
+  const [match, setMatch] = useState<MatchState>({
+    fen: startFen,
+    isRunning: false,
+    lastMove: null,
+    moveCount: 0,
+    pgn: '',
+    result: null,
+    status: 'Loading.',
     turn: 'White',
   })
 
-  const syncBoard = () => {
-    const game = gameRef.current
-    const color = turnColor(game)
-    const status = game.isCheckmate()
-      ? `Checkmate. ${game.turn() === 'w' ? 'Black' : 'White'} wins.`
-      : game.isStalemate()
-        ? 'Draw by stalemate.'
-        : game.isDraw()
-          ? 'Draw.'
-          : game.isCheck()
-            ? `${game.turn() === 'w' ? 'White' : 'Black'} is in check.`
-            : 'Game in progress.'
+  const loadMatch = useCallback(async (path = 'state') => {
+    const response = await fetch(`${apiUrl}/${path}`, {
+      method: path === 'state' ? 'GET' : 'POST',
+    })
+    const nextMatch = (await response.json()) as MatchState
 
     groundRef.current?.set({
-      fen: game.fen(),
-      turnColor: color,
-      check: game.isCheck() ? color : false,
-      lastMove: lastMoveRef.current,
+      fen: nextMatch.fen,
+      lastMove: nextMatch.lastMove
+        ? ([nextMatch.lastMove.from, nextMatch.lastMove.to] as Key[])
+        : undefined,
       movable: {
-        color: game.isGameOver() ? undefined : color,
-        dests: game.isGameOver() ? new Map() : toDests(game),
+        color: undefined,
         free: false,
-        showDests: true,
-        rookCastle: false,
       },
+      turnColor: nextMatch.turn === 'White' ? 'white' : 'black',
+      viewOnly: true,
     })
 
-    setPosition({
-      fen: game.fen(),
-      status,
-      turn: game.turn() === 'w' ? 'White' : 'Black',
-    })
-  }
+    setMatch(nextMatch)
+  }, [])
 
   useEffect(() => {
     if (!boardRef.current) {
@@ -82,45 +66,16 @@ export default function ChessBoard() {
     }
 
     groundRef.current = Chessground(boardRef.current, {
-      fen: gameRef.current.fen(),
-      turnColor: turnColor(gameRef.current),
       coordinates: true,
+      fen: startFen,
       highlight: {
-        check: true,
         lastMove: true,
       },
-      animation: {
-        enabled: true,
-        duration: 150,
-      },
       movable: {
-        color: turnColor(gameRef.current),
-        dests: toDests(gameRef.current),
+        color: undefined,
         free: false,
-        showDests: true,
-        rookCastle: false,
-        events: {
-          after: (from, to) => {
-            const game = gameRef.current
-            let move
-
-            try {
-              move = game.move({ from, to, promotion: 'q' })
-            } catch {
-              syncBoard()
-              return
-            }
-
-            if (!move) {
-              syncBoard()
-              return
-            }
-
-            lastMoveRef.current = [from, to]
-            syncBoard()
-          },
-        },
       },
+      viewOnly: true,
     })
 
     return () => {
@@ -129,22 +84,35 @@ export default function ChessBoard() {
     }
   }, [])
 
+  useEffect(() => {
+    const firstLoad = setTimeout(() => {
+      void loadMatch()
+    }, 0)
+    const interval = setInterval(() => {
+      void loadMatch()
+    }, 500)
+
+    return () => {
+      clearTimeout(firstLoad)
+      clearInterval(interval)
+    }
+  }, [loadMatch])
+
   return (
     <main className="chess-page">
-      <section className="chess-shell" aria-label="Playable chess board">
+      <section className="chess-shell" aria-label="EvE V1 match viewer">
         <div className="board-wrap">
           <div ref={boardRef} className="chess-board" />
         </div>
 
         <div className="controls">
-          <button
-            type="button"
-            onClick={() => {
-              gameRef.current.reset()
-              lastMoveRef.current = undefined
-              syncBoard()
-            }}
-          >
+          <button type="button" onClick={() => void loadMatch('start')}>
+            Start
+          </button>
+          <button type="button" onClick={() => void loadMatch('stop')}>
+            Stop
+          </button>
+          <button type="button" onClick={() => void loadMatch('reset')}>
             Reset
           </button>
           <button
@@ -157,16 +125,24 @@ export default function ChessBoard() {
 
         <dl className="game-info">
           <div>
-            <dt>Turn</dt>
-            <dd>{position.turn}</dd>
+            <dt>Status</dt>
+            <dd>{match.status}</dd>
           </div>
           <div>
-            <dt>Status</dt>
-            <dd>{position.status}</dd>
+            <dt>Turn</dt>
+            <dd>{match.turn}</dd>
           </div>
-          <div className="fen-row">
-            <dt>FEN</dt>
-            <dd>{position.fen}</dd>
+          <div>
+            <dt>Move count</dt>
+            <dd>{match.moveCount}</dd>
+          </div>
+          <div>
+            <dt>Result</dt>
+            <dd>{match.result ?? 'None'}</dd>
+          </div>
+          <div className="pgn-row">
+            <dt>PGN</dt>
+            <dd>{match.pgn || 'No moves yet.'}</dd>
           </div>
         </dl>
       </section>
