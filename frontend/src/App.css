@@ -6,6 +6,15 @@
 }
 
 .chess-shell {
+  width: min(94vw, 1180px);
+  display: flex;
+  align-items: start;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.live-match {
   width: min(90vw, 560px);
   display: grid;
   gap: 18px;
@@ -71,10 +80,74 @@
   color: #f8fafc;
 }
 
+.history-panel {
+  width: min(90vw, 520px);
+  display: grid;
+  gap: 16px;
+  text-align: left;
+}
+
+.history-panel h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.history-panel p {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.game-list {
+  max-height: 320px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.game-list button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  background: #182132;
+  color: #f8fafc;
+  font: inherit;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-list button:hover {
+  border-color: #64748b;
+}
+
+.game-list button span:not(:first-child) {
+  color: #94a3b8;
+  font-size: 0.86rem;
+}
+
+.selected-game {
+  display: grid;
+  gap: 12px;
+}
+
 .pgn-row dd {
   max-height: 160px;
   overflow: auto;
   overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.move-list {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding-left: 24px;
+  color: #e5e7eb;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85rem;
 }

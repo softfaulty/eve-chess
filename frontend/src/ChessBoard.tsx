@@ -6,7 +6,7 @@ import '@lichess-org/chessground/assets/chessground.base.css'
 import '@lichess-org/chessground/assets/chessground.brown.css'
 import '@lichess-org/chessground/assets/chessground.cburnett.css'
 
-const apiUrl = 'http://localhost:3001/match'
+const apiBaseUrl = 'http://localhost:3001'
 const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
 type MatchState = {
@@ -24,9 +24,31 @@ type MatchState = {
   turn: 'White' | 'Black'
 }
 
+type GameSummary = {
+  id: string
+  endedAt: string | null
+  moveCount: number
+  result: string | null
+  startedAt: string
+  status: string
+}
+
+type GameDetail = GameSummary & {
+  moves: {
+    fenAfter: string
+    from: string
+    id: string
+    ply: number
+    san: string
+    to: string
+  }[]
+  pgn: string | null
+}
+
 export default function ChessBoard() {
   const boardRef = useRef<HTMLDivElement | null>(null)
   const groundRef = useRef<Api | null>(null)
+  const [games, setGames] = useState<GameSummary[]>([])
   const [match, setMatch] = useState<MatchState>({
     fen: startFen,
     isRunning: false,
@@ -37,9 +59,10 @@ export default function ChessBoard() {
     status: 'Loading.',
     turn: 'White',
   })
+  const [selectedGame, setSelectedGame] = useState<GameDetail | null>(null)
 
   const loadMatch = useCallback(async (path = 'state') => {
-    const response = await fetch(`${apiUrl}/${path}`, {
+    const response = await fetch(`${apiBaseUrl}/match/${path}`, {
       method: path === 'state' ? 'GET' : 'POST',
     })
     const nextMatch = (await response.json()) as MatchState
@@ -58,6 +81,16 @@ export default function ChessBoard() {
     })
 
     setMatch(nextMatch)
+  }, [])
+
+  const loadGames = useCallback(async () => {
+    const response = await fetch(`${apiBaseUrl}/games`)
+    setGames((await response.json()) as GameSummary[])
+  }, [])
+
+  const loadGame = useCallback(async (id: string) => {
+    const response = await fetch(`${apiBaseUrl}/games/${id}`)
+    setSelectedGame((await response.json()) as GameDetail)
   }, [])
 
   useEffect(() => {
@@ -98,53 +131,146 @@ export default function ChessBoard() {
     }
   }, [loadMatch])
 
+  useEffect(() => {
+    const firstLoad = setTimeout(() => {
+      void loadGames()
+    }, 0)
+    const interval = setInterval(() => {
+      void loadGames()
+    }, 2000)
+
+    return () => {
+      clearTimeout(firstLoad)
+      clearInterval(interval)
+    }
+  }, [loadGames])
+
   return (
     <main className="chess-page">
-      <section className="chess-shell" aria-label="EvE V1 match viewer">
-        <div className="board-wrap">
-          <div ref={boardRef} className="chess-board" />
+      <section className="chess-shell" aria-label="EvE V2 match viewer">
+        <div className="live-match">
+          <div className="board-wrap">
+            <div ref={boardRef} className="chess-board" />
+          </div>
+
+          <div className="controls">
+            <button
+              type="button"
+              onClick={() => {
+                void loadMatch('start')
+                void loadGames()
+              }}
+            >
+              Start
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void loadMatch('stop')
+                void loadGames()
+              }}
+            >
+              Stop
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void loadMatch('reset')
+                void loadGames()
+              }}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => groundRef.current?.toggleOrientation()}
+            >
+              Flip board
+            </button>
+          </div>
+
+          <dl className="game-info">
+            <div>
+              <dt>Status</dt>
+              <dd>{match.status}</dd>
+            </div>
+            <div>
+              <dt>Turn</dt>
+              <dd>{match.turn}</dd>
+            </div>
+            <div>
+              <dt>Move count</dt>
+              <dd>{match.moveCount}</dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd>{match.result ?? 'None'}</dd>
+            </div>
+            <div className="pgn-row">
+              <dt>Live PGN</dt>
+              <dd>{match.pgn || 'No moves yet.'}</dd>
+            </div>
+          </dl>
         </div>
 
-        <div className="controls">
-          <button type="button" onClick={() => void loadMatch('start')}>
-            Start
-          </button>
-          <button type="button" onClick={() => void loadMatch('stop')}>
-            Stop
-          </button>
-          <button type="button" onClick={() => void loadMatch('reset')}>
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={() => groundRef.current?.toggleOrientation()}
-          >
-            Flip board
-          </button>
-        </div>
+        <aside className="history-panel" aria-label="Recent games">
+          <h2>Recent Games</h2>
 
-        <dl className="game-info">
-          <div>
-            <dt>Status</dt>
-            <dd>{match.status}</dd>
+          <div className="game-list">
+            {games.length === 0 ? (
+              <p>No stored games yet.</p>
+            ) : (
+              games.map((game) => (
+                <button
+                  key={game.id}
+                  type="button"
+                  onClick={() => void loadGame(game.id)}
+                >
+                  <span>{game.result ?? 'In progress'}</span>
+                  <span>{game.status}</span>
+                  <span>{game.moveCount} moves</span>
+                  <span>
+                    {new Date(game.startedAt).toLocaleString()} /{' '}
+                    {game.endedAt
+                      ? new Date(game.endedAt).toLocaleString()
+                      : 'still running'}
+                  </span>
+                </button>
+              ))
+            )}
           </div>
-          <div>
-            <dt>Turn</dt>
-            <dd>{match.turn}</dd>
-          </div>
-          <div>
-            <dt>Move count</dt>
-            <dd>{match.moveCount}</dd>
-          </div>
-          <div>
-            <dt>Result</dt>
-            <dd>{match.result ?? 'None'}</dd>
-          </div>
-          <div className="pgn-row">
-            <dt>PGN</dt>
-            <dd>{match.pgn || 'No moves yet.'}</dd>
-          </div>
-        </dl>
+
+          {selectedGame ? (
+            <div className="selected-game">
+              <h2>Game Detail</h2>
+              <dl className="game-info">
+                <div>
+                  <dt>Result</dt>
+                  <dd>{selectedGame.result ?? 'None'}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{selectedGame.status}</dd>
+                </div>
+                <div>
+                  <dt>Move count</dt>
+                  <dd>{selectedGame.moveCount}</dd>
+                </div>
+                <div className="pgn-row">
+                  <dt>PGN</dt>
+                  <dd>{selectedGame.pgn || 'No PGN.'}</dd>
+                </div>
+              </dl>
+              <ol className="move-list">
+                {selectedGame.moves.map((move) => (
+                  <li key={move.id}>
+                    {move.ply}. {move.san} ({move.from}-{move.to})
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </aside>
       </section>
     </main>
   )

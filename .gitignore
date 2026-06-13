@@ -12,6 +12,11 @@ node_modules
 dist
 dist-ssr
 *.tsbuildinfo
+backend/prisma.config.d.ts
+backend/prisma.config.js
+backend/prisma.config.js.map
+backend/prisma/dev.db
+backend/prisma/dev.db-*
 *.local
 
 # Editor directories and files

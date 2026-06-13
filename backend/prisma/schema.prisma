@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Engine {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  kind       String
+  createdAt  DateTime @default(now())
+  whiteGames Game[]   @relation("WhiteEngineGames")
+  blackGames Game[]   @relation("BlackEngineGames")
+}
+
+model Game {
+  id            String    @id @default(cuid())
+  whiteEngineId String
+  blackEngineId String
+  result        String?
+  status        String
+  finalFen      String?
+  pgn           String?
+  moveCount     Int       @default(0)
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  whiteEngine   Engine    @relation("WhiteEngineGames", fields: [whiteEngineId], references: [id])
+  blackEngine   Engine    @relation("BlackEngineGames", fields: [blackEngineId], references: [id])
+  moves         Move[]
+}
+
+model Move {
+  id        String   @id @default(cuid())
+  gameId    String
+  ply       Int
+  san       String
+  from      String
+  to        String
+  fenAfter  String
+  createdAt DateTime @default(now())
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, ply])
+}

@@ -8,9 +8,9 @@ that is the whole ritual.
 the backend owns the match state.
 the frontend renders the board and tries not to touch the cursed object.
 
-current version: **V1**
+current version: **V2**
 
-V1 is two random legal move bots making choices with the confidence of a printer at 3am.
+V2 is two random legal move bots making choices with the confidence of a printer at 3am, except now the database remembers the incident.
 
 ---
 
@@ -18,14 +18,13 @@ V1 is two random legal move bots making choices with the confidence of a printer
 
 ```txt
 frontend/   Vite + React + TypeScript + Chessground
-backend/    NestJS + TypeScript + chess.js
+backend/    NestJS + TypeScript + chess.js + Prisma + SQLite
 ```
 
-no Prisma yet.
 no machine learning yet.
 no Stockfish yet.
 
-just `chess.js`, an interval, and the quiet horror of legal randomness.
+just `chess.js`, an interval, SQLite, and the quiet horror of legal randomness with receipts.
 
 ---
 
@@ -37,6 +36,7 @@ backend:
 - owns the `chess.js` game
 - makes one legal random move about every 700ms
 - stops when the game ends
+- stores engines, games, and moves in SQLite
 - exposes match endpoints
 
 frontend:
@@ -44,6 +44,7 @@ frontend:
 - renders one Chessground board
 - polls backend state every 500ms
 - shows status, turn, move count, result, and PGN
+- shows recent stored games and move history
 - does not allow user moves
 
 backend is the source of truth.
@@ -147,6 +148,30 @@ resets the match.
 curl -X POST http://localhost:3001/match/reset
 ```
 
+### `GET /games`
+
+returns recent games, newest first.
+
+```bash
+curl http://localhost:3001/games
+```
+
+### `GET /games/:id`
+
+returns one game with moves.
+
+```bash
+curl http://localhost:3001/games/some-game-id
+```
+
+### `GET /engines`
+
+returns known engines.
+
+```bash
+curl http://localhost:3001/engines
+```
+
 ---
 
 ## structure
@@ -154,11 +179,25 @@ curl -X POST http://localhost:3001/match/reset
 ```txt
 eve-chess/
 ├─ backend/
+│  ├─ prisma/
+│  │  ├─ migrations/
+│  │  └─ schema.prisma
 │  ├─ src/
+│  │  ├─ engines/
+│  │  │  ├─ engines.controller.ts
+│  │  │  ├─ engines.module.ts
+│  │  │  └─ engines.service.ts
+│  │  ├─ games/
+│  │  │  ├─ games.controller.ts
+│  │  │  ├─ games.module.ts
+│  │  │  └─ games.service.ts
 │  │  ├─ match/
 │  │  │  ├─ match.controller.ts
 │  │  │  ├─ match.module.ts
 │  │  │  └─ match.service.ts
+│  │  ├─ prisma/
+│  │  │  ├─ prisma.module.ts
+│  │  │  └─ prisma.service.ts
 │  │  ├─ app.module.ts
 │  │  └─ main.ts
 │  └─ package.json
@@ -181,12 +220,13 @@ eve-chess/
 ## current state
 
 ```txt
-version: V1
+version: V2
 bots: random legal moves
-storage: in memory
-frontend: read-only board viewer
+live match: in memory
+history: SQLite
+frontend: read-only board viewer plus recent games
 backend: match owner
-database: no
+database: Prisma + SQLite
 stockfish: no
 machine learning: absolutely not
 ```
@@ -197,7 +237,7 @@ machine learning: absolutely not
 
 V1: random legal move bots.
 
-V2: persist games so every match does not vanish into the ceiling tile.
+V2: persist games so every match does not vanish into the ceiling tile. current version. the ceiling tile has been defeated, for now.
 
 V3: material-based evaluation, because apparently the bots should know queens are useful.
 
@@ -217,4 +257,4 @@ this is not a chess engine yet.
 
 it is a clean little arena where the backend moves pieces legally and the frontend displays the damage.
 
-for V1, that is enough.
+for V2, that is enough.
