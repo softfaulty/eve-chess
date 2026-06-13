@@ -8,9 +8,9 @@ that is the whole ritual.
 the backend owns the match state.
 the frontend renders the board and tries not to touch the cursed object.
 
-current version: **V2**
+current version: **V3**
 
-V2 is two random legal move bots making choices with the confidence of a printer at 3am, except now the database remembers the incident.
+V3 is two material-based bots making one-ply decisions with the confidence of a calculator that found a pawn on the floor.
 
 ---
 
@@ -24,7 +24,7 @@ backend/    NestJS + TypeScript + chess.js + Prisma + SQLite
 no machine learning yet.
 no Stockfish yet.
 
-just `chess.js`, an interval, SQLite, and the quiet horror of legal randomness with receipts.
+just `chess.js`, an interval, SQLite, and the quiet horror of material evaluation with receipts.
 
 ---
 
@@ -34,16 +34,17 @@ backend:
 
 - stores one in-memory match
 - owns the `chess.js` game
-- makes one legal random move about every 700ms
+- makes one legal material-based move about every 700ms
 - stops when the game ends
 - stores engines, games, and moves in SQLite
+- stores material evals after moves
 - exposes match endpoints
 
 frontend:
 
 - renders one Chessground board
 - polls backend state every 500ms
-- shows status, turn, move count, result, and PGN
+- shows status, turn, move count, material eval, result, and PGN
 - shows recent stored games and move history
 - does not allow user moves
 
@@ -118,6 +119,7 @@ shape:
   "turn": "White",
   "status": "Ready.",
   "moveCount": 0,
+  "evalAfter": 0,
   "lastMove": null,
   "isRunning": false,
   "result": null
@@ -220,8 +222,8 @@ eve-chess/
 ## current state
 
 ```txt
-version: V2
-bots: random legal moves
+version: V3
+bots: material-v1, one-ply
 live match: in memory
 history: SQLite
 frontend: read-only board viewer plus recent games
@@ -237,9 +239,9 @@ machine learning: absolutely not
 
 V1: random legal move bots.
 
-V2: persist games so every match does not vanish into the ceiling tile. current version. the ceiling tile has been defeated, for now.
+V2: persist games so every match does not vanish into the ceiling tile. the ceiling tile has been defeated, for now.
 
-V3: material-based evaluation, because apparently the bots should know queens are useful.
+V3: material-based evaluation, because apparently the bots should know queens are useful. current version. the bots have discovered arithmetic and immediately made it everyone else's problem.
 
 V4: minimax. the bots begin thinking ahead. horrible for them.
 
@@ -257,4 +259,4 @@ this is not a chess engine yet.
 
 it is a clean little arena where the backend moves pieces legally and the frontend displays the damage.
 
-for V2, that is enough.
+for V3, that is enough.

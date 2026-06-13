@@ -10,6 +10,7 @@ const apiBaseUrl = 'http://localhost:3001'
 const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
 type MatchState = {
+  evalAfter: number
   fen: string
   isRunning: boolean
   lastMove: {
@@ -35,6 +36,7 @@ type GameSummary = {
 
 type GameDetail = GameSummary & {
   moves: {
+    evalAfter: number | null
     fenAfter: string
     from: string
     id: string
@@ -50,6 +52,7 @@ export default function ChessBoard() {
   const groundRef = useRef<Api | null>(null)
   const [games, setGames] = useState<GameSummary[]>([])
   const [match, setMatch] = useState<MatchState>({
+    evalAfter: 0,
     fen: startFen,
     isRunning: false,
     lastMove: null,
@@ -147,7 +150,7 @@ export default function ChessBoard() {
 
   return (
     <main className="chess-page">
-      <section className="chess-shell" aria-label="EvE V2 match viewer">
+      <section className="chess-shell" aria-label="EvE V3 match viewer">
         <div className="live-match">
           <div className="board-wrap">
             <div ref={boardRef} className="chess-board" />
@@ -201,6 +204,10 @@ export default function ChessBoard() {
             <div>
               <dt>Move count</dt>
               <dd>{match.moveCount}</dd>
+            </div>
+            <div>
+              <dt>Material eval</dt>
+              <dd>{match.evalAfter}</dd>
             </div>
             <div>
               <dt>Result</dt>
@@ -265,6 +272,7 @@ export default function ChessBoard() {
                 {selectedGame.moves.map((move) => (
                   <li key={move.id}>
                     {move.ply}. {move.san} ({move.from}-{move.to})
+                    {move.evalAfter === null ? '' : ` eval ${move.evalAfter}`}
                   </li>
                 ))}
               </ol>

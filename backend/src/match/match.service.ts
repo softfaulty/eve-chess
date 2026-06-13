@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { Chess } from 'chess.js';
+import { Chess, Move } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 
 type LastMove = {
@@ -9,6 +9,7 @@ type LastMove = {
 } | null;
 
 export type MatchState = {
+  evalAfter: number;
   fen: string;
   isRunning: boolean;
   lastMove: LastMove;
@@ -17,6 +18,15 @@ export type MatchState = {
   result: string | null;
   status: string;
   turn: 'White' | 'Black';
+};
+
+const pieceValues = {
+  b: 330,
+  k: 0,
+  n: 320,
+  p: 100,
+  q: 900,
+  r: 500,
 };
 
 @Injectable()
@@ -35,19 +45,23 @@ export class MatchService implements OnModuleInit {
 
   async onModuleInit() {
     const whiteEngine = await this.prisma.engine.upsert({
-      where: { name: 'Random White' },
-      update: {},
+      where: { name: 'Material White' },
+      update: {
+        kind: 'material-v1',
+      },
       create: {
-        kind: 'random',
-        name: 'Random White',
+        kind: 'material-v1',
+        name: 'Material White',
       },
     });
     const blackEngine = await this.prisma.engine.upsert({
-      where: { name: 'Random Black' },
-      update: {},
+      where: { name: 'Material Black' },
+      update: {
+        kind: 'material-v1',
+      },
       create: {
-        kind: 'random',
-        name: 'Random Black',
+        kind: 'material-v1',
+        name: 'Material Black',
       },
     });
 
@@ -57,6 +71,7 @@ export class MatchService implements OnModuleInit {
 
   getState(): MatchState {
     return {
+      evalAfter: this.evaluateMaterial(),
       fen: this.game.fen(),
       isRunning: this.isRunning,
       lastMove: this.lastMove,
@@ -66,6 +81,59 @@ export class MatchService implements OnModuleInit {
       status: this.status,
       turn: this.game.turn() === 'w' ? 'White' : 'Black',
     };
+  }
+
+  private evaluateMaterial(): number {
+    if (this.game.isCheckmate()) {
+      return this.game.turn() === 'w' ? -100000 : 100000;
+    }
+
+    if (this.game.isDraw()) {
+      return 0;
+    }
+
+    return this.game
+      .board()
+      .flat()
+      .reduce((score, piece) => {
+        if (!piece) {
+          return score;
+        }
+
+        const multiplier = piece.color === 'w' ? 1 : -1;
+
+        return score + pieceValues[piece.type] * multiplier;
+      }, 0);
+  }
+
+  private pickMove(): Move {
+    const moves = this.game.moves({ verbose: true });
+    const bestMoves: Move[] = [];
+    let bestScore = this.game.turn() === 'w' ? -Infinity : Infinity;
+
+    for (const move of moves) {
+      this.game.move({
+        from: move.from,
+        promotion: move.promotion ?? 'q',
+        to: move.to,
+      });
+
+      const score = this.evaluateMaterial();
+      this.game.undo();
+
+      if (
+        (this.game.turn() === 'w' && score > bestScore) ||
+        (this.game.turn() === 'b' && score < bestScore)
+      ) {
+        bestScore = score;
+        bestMoves.length = 0;
+        bestMoves.push(move);
+      } else if (score === bestScore) {
+        bestMoves.push(move);
+      }
+    }
+
+    return bestMoves[Math.floor(Math.random() * bestMoves.length)];
   }
 
   async start(): Promise<MatchState> {
@@ -106,12 +174,13 @@ export class MatchService implements OnModuleInit {
           return;
         }
 
-        const move = moves[Math.floor(Math.random() * moves.length)];
+        const move = this.pickMove();
         const played = this.game.move({
           from: move.from,
           promotion: move.promotion ?? 'q',
           to: move.to,
         });
+        const evalAfter = this.evaluateMaterial();
 
         this.lastMove = {
           from: played.from,
@@ -122,6 +191,7 @@ export class MatchService implements OnModuleInit {
         if (this.gameId) {
           await this.prisma.move.create({
             data: {
+              evalAfter,
               fenAfter: this.game.fen(),
               from: played.from,
               gameId: this.gameId,
