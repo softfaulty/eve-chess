@@ -8,14 +8,20 @@ type LastMove = {
   to: string;
 } | null;
 
-type EngineKind = 'random-v1' | 'material-v1' | 'minimax-v1' | 'minimax-v2';
+type EngineKind =
+  | 'random-v1'
+  | 'material-v1'
+  | 'minimax-v1'
+  | 'minimax-v2'
+  | 'positional-v1';
 type EngineSide = 'white' | 'black';
 
 const engineOptions: { kind: EngineKind; name: string }[] = [
   { kind: 'random-v1', name: 'Random v1' },
   { kind: 'material-v1', name: 'Material v1' },
-  { kind: 'minimax-v1', name: 'Minimax 1' },
-  { kind: 'minimax-v2', name: 'Minimax 2' },
+  { kind: 'minimax-v1', name: 'Minimax v1' },
+  { kind: 'minimax-v2', name: 'Minimax v2' },
+  { kind: 'positional-v1', name: 'Positional v1' },
 ];
 
 export type MatchState = {
@@ -43,6 +49,68 @@ const pieceValues = {
   r: 500,
 };
 const checkmateScore = 100000;
+const pieceSquareTables = {
+  b: [
+    [-20, -10, -10, -10, -10, -10, -10, -20],
+    [-10, 5, 0, 0, 0, 0, 5, -10],
+    [-10, 10, 10, 10, 10, 10, 10, -10],
+    [-10, 0, 10, 10, 10, 10, 0, -10],
+    [-10, 5, 5, 10, 10, 5, 5, -10],
+    [-10, 0, 5, 10, 10, 5, 0, -10],
+    [-10, 0, 0, 0, 0, 0, 0, -10],
+    [-20, -10, -10, -10, -10, -10, -10, -20],
+  ],
+  k: [
+    [20, 30, 10, 0, 0, 10, 30, 20],
+    [20, 20, 0, 0, 0, 0, 20, 20],
+    [-10, -20, -20, -20, -20, -20, -20, -10],
+    [-20, -30, -30, -40, -40, -30, -30, -20],
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+  ],
+  n: [
+    [-50, -40, -30, -30, -30, -30, -40, -50],
+    [-40, -20, 0, 5, 5, 0, -20, -40],
+    [-30, 5, 10, 15, 15, 10, 5, -30],
+    [-30, 0, 15, 20, 20, 15, 0, -30],
+    [-30, 5, 15, 20, 20, 15, 5, -30],
+    [-30, 0, 10, 15, 15, 10, 0, -30],
+    [-40, -20, 0, 0, 0, 0, -20, -40],
+    [-50, -40, -30, -30, -30, -30, -40, -50],
+  ],
+  p: [
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    [50, 50, 50, 50, 50, 50, 50, 50],
+    [10, 10, 20, 30, 30, 20, 10, 10],
+    [5, 5, 10, 25, 25, 10, 5, 5],
+    [0, 0, 0, 20, 20, 0, 0, 0],
+    [5, -5, -10, 0, 0, -10, -5, 5],
+    [5, 10, 10, -20, -20, 10, 10, 5],
+    [0, 0, 0, 0, 0, 0, 0, 0],
+  ],
+  q: [
+    [-20, -10, -10, -5, -5, -10, -10, -20],
+    [-10, 0, 5, 0, 0, 0, 0, -10],
+    [-10, 5, 5, 5, 5, 5, 0, -10],
+    [0, 0, 5, 5, 5, 5, 0, -5],
+    [-5, 0, 5, 5, 5, 5, 0, -5],
+    [-10, 0, 5, 5, 5, 5, 0, -10],
+    [-10, 0, 0, 0, 0, 0, 0, -10],
+    [-20, -10, -10, -5, -5, -10, -10, -20],
+  ],
+  r: [
+    [0, 0, 0, 5, 5, 0, 0, 0],
+    [-5, 0, 0, 0, 0, 0, 0, -5],
+    [-5, 0, 0, 0, 0, 0, 0, -5],
+    [-5, 0, 0, 0, 0, 0, 0, -5],
+    [-5, 0, 0, 0, 0, 0, 0, -5],
+    [-5, 0, 0, 0, 0, 0, 0, -5],
+    [5, 10, 10, 10, 10, 10, 10, 5],
+    [0, 0, 0, 0, 0, 0, 0, 0],
+  ],
+};
 
 @Injectable()
 export class MatchService implements OnModuleInit {
@@ -90,7 +158,11 @@ export class MatchService implements OnModuleInit {
       this.engineIds.get(`white:${this.whiteEngineKind}`) ?? '';
     this.blackEngineId =
       this.engineIds.get(`black:${this.blackEngineKind}`) ?? '';
-    this.currentEval = this.evaluatePosition(0, this.game.moves().length);
+    this.currentEval = this.evaluateForEngine(
+      this.whiteEngineKind,
+      0,
+      this.game.moves({ verbose: true }),
+    );
   }
 
   getState(): MatchState {
@@ -188,6 +260,236 @@ export class MatchService implements OnModuleInit {
     return material;
   }
 
+  private evaluateForEngine(
+    engineKind: EngineKind,
+    depth = 0,
+    moves?: Move[],
+  ): number {
+    if (engineKind === 'positional-v1') {
+      return this.evaluatePositional(depth, moves);
+    }
+
+    return this.evaluatePosition(depth, moves?.length);
+  }
+
+  private evaluatePositional(depth = 0, moves?: Move[]): number {
+    const legalMoves = moves ?? this.game.moves({ verbose: true });
+
+    if (legalMoves.length === 0) {
+      if (!this.game.isCheck()) {
+        return 0;
+      }
+
+      return this.game.turn() === 'w'
+        ? -checkmateScore - depth
+        : checkmateScore + depth;
+    }
+
+    if (this.game.isDraw()) {
+      return 0;
+    }
+
+    let score = 0;
+    const board = this.game.board();
+    const whitePawnsByFile = Array(8).fill(0) as number[];
+    const blackPawnsByFile = Array(8).fill(0) as number[];
+    const whitePawnRowsByFile = Array.from({ length: 8 }, () => [] as number[]);
+    const blackPawnRowsByFile = Array.from({ length: 8 }, () => [] as number[]);
+    const centerSquares = new Set(['d4', 'e4', 'd5', 'e5']);
+    const whiteMinorStarts = [
+      [7, 1],
+      [7, 2],
+      [7, 5],
+      [7, 6],
+    ];
+    const blackMinorStarts = [
+      [0, 1],
+      [0, 2],
+      [0, 5],
+      [0, 6],
+    ];
+    let whiteKing: [number, number] | null = null;
+    let blackKing: [number, number] | null = null;
+    let whiteDevelopedMinorPieces = 0;
+    let blackDevelopedMinorPieces = 0;
+
+    for (let row = 0; row < 8; row += 1) {
+      for (let file = 0; file < 8; file += 1) {
+        const piece = board[row][file];
+
+        if (!piece) {
+          continue;
+        }
+
+        const multiplier = piece.color === 'w' ? 1 : -1;
+        const tableRow = piece.color === 'w' ? row : 7 - row;
+
+        score +=
+          multiplier *
+          (pieceValues[piece.type] +
+            pieceSquareTables[piece.type][tableRow][file]);
+
+        if (piece.type === 'p') {
+          if (piece.color === 'w') {
+            whitePawnsByFile[file] += 1;
+            whitePawnRowsByFile[file].push(row);
+          } else {
+            blackPawnsByFile[file] += 1;
+            blackPawnRowsByFile[file].push(row);
+          }
+        } else if (piece.type === 'k') {
+          if (piece.color === 'w') {
+            whiteKing = [row, file];
+          } else {
+            blackKing = [row, file];
+          }
+        } else if (piece.type === 'n' || piece.type === 'b') {
+          const isWhiteStart = whiteMinorStarts.some(
+            ([startRow, startFile]) => row === startRow && file === startFile,
+          );
+          const isBlackStart = blackMinorStarts.some(
+            ([startRow, startFile]) => row === startRow && file === startFile,
+          );
+
+          if (piece.color === 'w' && !isWhiteStart) {
+            whiteDevelopedMinorPieces += 1;
+          } else if (piece.color === 'b' && !isBlackStart) {
+            blackDevelopedMinorPieces += 1;
+          }
+        }
+      }
+    }
+
+    score += legalMoves.length * (this.game.turn() === 'w' ? 3 : -3);
+    score += this.game.isCheck() ? (this.game.turn() === 'w' ? -35 : 35) : 0;
+
+    for (const move of legalMoves) {
+      if (centerSquares.has(move.to)) {
+        score += this.game.turn() === 'w' ? 4 : -4;
+      }
+    }
+
+    score += whiteDevelopedMinorPieces * 12 - blackDevelopedMinorPieces * 12;
+
+    if (board[7][3]?.type !== 'q' && whiteDevelopedMinorPieces < 3) {
+      score -= 25;
+    }
+
+    if (board[0][3]?.type !== 'q' && blackDevelopedMinorPieces < 3) {
+      score += 25;
+    }
+
+    for (let file = 0; file < 8; file += 1) {
+      if (whitePawnsByFile[file] > 1) {
+        score -= (whitePawnsByFile[file] - 1) * 18;
+      }
+
+      if (blackPawnsByFile[file] > 1) {
+        score += (blackPawnsByFile[file] - 1) * 18;
+      }
+
+      for (const row of whitePawnRowsByFile[file]) {
+        const adjacentFiles = [file - 1, file + 1].filter(
+          (nextFile) => nextFile >= 0 && nextFile < 8,
+        );
+        const isIsolated = adjacentFiles.every(
+          (nextFile) => whitePawnsByFile[nextFile] === 0,
+        );
+        const isPassed = [file - 1, file, file + 1]
+          .filter((nextFile) => nextFile >= 0 && nextFile < 8)
+          .every((nextFile) =>
+            blackPawnRowsByFile[nextFile].every((blackRow) => blackRow >= row),
+          );
+
+        if (isIsolated) {
+          score -= 14;
+        }
+
+        if (isPassed) {
+          score += 20 + (6 - row) * 6;
+        }
+      }
+
+      for (const row of blackPawnRowsByFile[file]) {
+        const adjacentFiles = [file - 1, file + 1].filter(
+          (nextFile) => nextFile >= 0 && nextFile < 8,
+        );
+        const isIsolated = adjacentFiles.every(
+          (nextFile) => blackPawnsByFile[nextFile] === 0,
+        );
+        const isPassed = [file - 1, file, file + 1]
+          .filter((nextFile) => nextFile >= 0 && nextFile < 8)
+          .every((nextFile) =>
+            whitePawnRowsByFile[nextFile].every((whiteRow) => whiteRow <= row),
+          );
+
+        if (isIsolated) {
+          score += 14;
+        }
+
+        if (isPassed) {
+          score -= 20 + (row - 1) * 6;
+        }
+      }
+    }
+
+    for (let row = 0; row < 8; row += 1) {
+      for (let file = 0; file < 8; file += 1) {
+        const piece = board[row][file];
+
+        if (piece?.type !== 'r') {
+          continue;
+        }
+
+        if (piece.color === 'w') {
+          if (whitePawnsByFile[file] === 0 && blackPawnsByFile[file] === 0) {
+            score += 20;
+          } else if (whitePawnsByFile[file] === 0) {
+            score += 10;
+          }
+        } else if (
+          whitePawnsByFile[file] === 0 &&
+          blackPawnsByFile[file] === 0
+        ) {
+          score -= 20;
+        } else if (blackPawnsByFile[file] === 0) {
+          score -= 10;
+        }
+      }
+    }
+
+    for (const king of [whiteKing, blackKing] as const) {
+      if (!king) {
+        continue;
+      }
+
+      const [kingRow, kingFile] = king;
+      const isWhiteKing = king === whiteKing;
+      let friendlyPawnShield = 0;
+
+      for (const file of [kingFile - 1, kingFile, kingFile + 1]) {
+        if (file < 0 || file > 7) {
+          continue;
+        }
+
+        const shieldRow = isWhiteKing ? kingRow - 1 : kingRow + 1;
+
+        if (
+          shieldRow >= 0 &&
+          shieldRow < 8 &&
+          board[shieldRow][file]?.type === 'p' &&
+          board[shieldRow][file]?.color === (isWhiteKing ? 'w' : 'b')
+        ) {
+          friendlyPawnShield += 1;
+        }
+      }
+
+      score += (3 - friendlyPawnShield) * (isWhiteKing ? -18 : 18);
+    }
+
+    return score;
+  }
+
   private pickMove(moves: Move[]): Move {
     const engineKind =
       this.game.turn() === 'w' ? this.whiteEngineKind : this.blackEngineKind;
@@ -220,7 +522,7 @@ export class MatchService implements OnModuleInit {
       const score =
         engineKind === 'material-v1'
           ? this.evaluateMaterial()
-          : this.minimax(depth - 1, -Infinity, Infinity);
+          : this.minimax(depth - 1, -Infinity, Infinity, engineKind);
       this.game.undo();
 
       if (
@@ -267,12 +569,25 @@ export class MatchService implements OnModuleInit {
       });
     }
 
+    if (this.game.turn() === side[0]) {
+      this.currentEval = this.evaluateForEngine(
+        kind,
+        0,
+        this.game.moves({ verbose: true }),
+      );
+    }
+
     this.broadcastState();
     return this.getState();
   }
 
-  private minimax(depth: number, alpha: number, beta: number): number {
-    const cacheKey = `${depth}:${this.game.hash()}`;
+  private minimax(
+    depth: number,
+    alpha: number,
+    beta: number,
+    engineKind: EngineKind,
+  ): number {
+    const cacheKey = `${engineKind}:${depth}:${this.game.hash()}`;
     const cachedScore = this.searchCache.get(cacheKey);
 
     if (cachedScore !== undefined) {
@@ -282,13 +597,13 @@ export class MatchService implements OnModuleInit {
     const moves = this.orderMoves(this.game.moves({ verbose: true }));
 
     if (moves.length === 0 || this.game.isDraw()) {
-      const score = this.evaluatePosition(depth, moves.length);
+      const score = this.evaluateForEngine(engineKind, depth, moves);
       this.searchCache.set(cacheKey, score);
       return score;
     }
 
     if (depth === 0) {
-      const score = this.evaluatePosition(depth, moves.length);
+      const score = this.evaluateForEngine(engineKind, depth, moves);
       this.searchCache.set(cacheKey, score);
       return score;
     }
@@ -304,7 +619,10 @@ export class MatchService implements OnModuleInit {
           to: move.to,
         });
 
-        bestScore = Math.max(bestScore, this.minimax(depth - 1, alpha, beta));
+        bestScore = Math.max(
+          bestScore,
+          this.minimax(depth - 1, alpha, beta, engineKind),
+        );
         this.game.undo();
         alpha = Math.max(alpha, bestScore);
 
@@ -331,7 +649,10 @@ export class MatchService implements OnModuleInit {
         to: move.to,
       });
 
-      bestScore = Math.min(bestScore, this.minimax(depth - 1, alpha, beta));
+      bestScore = Math.min(
+        bestScore,
+        this.minimax(depth - 1, alpha, beta, engineKind),
+      );
       this.game.undo();
       beta = Math.min(beta, bestScore);
 
@@ -382,7 +703,11 @@ export class MatchService implements OnModuleInit {
     });
 
     this.gameId = game.id;
-    this.currentEval = this.evaluatePosition(0, this.game.moves().length);
+    this.currentEval = this.evaluateForEngine(
+      this.whiteEngineKind,
+      0,
+      this.game.moves({ verbose: true }),
+    );
     this.broadcastState();
   }
 
@@ -473,6 +798,10 @@ export class MatchService implements OnModuleInit {
             return;
           }
 
+          const playedEngineKind =
+            this.game.turn() === 'w'
+              ? this.whiteEngineKind
+              : this.blackEngineKind;
           const move = this.pickMove(moves);
           const played = this.game.move({
             from: move.from,
@@ -480,7 +809,11 @@ export class MatchService implements OnModuleInit {
             to: move.to,
           });
           const nextMoves = this.game.moves({ verbose: true });
-          const evalAfter = this.evaluatePosition(0, nextMoves.length);
+          const evalAfter = this.evaluateForEngine(
+            playedEngineKind,
+            0,
+            nextMoves,
+          );
 
           this.currentEval = evalAfter;
 
@@ -605,7 +938,11 @@ export class MatchService implements OnModuleInit {
 
     this.game.reset();
     this.gameId = null;
-    this.currentEval = this.evaluatePosition(0, this.game.moves().length);
+    this.currentEval = this.evaluateForEngine(
+      this.whiteEngineKind,
+      0,
+      this.game.moves({ verbose: true }),
+    );
     this.lastMove = null;
     this.result = null;
     this.status = 'Ready.';

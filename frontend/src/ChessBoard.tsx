@@ -11,7 +11,12 @@ const apiBaseUrl = 'http://localhost:3001'
 const socketUrl = 'http://localhost:3001'
 const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
-type EngineKind = 'random-v1' | 'material-v1' | 'minimax-v1' | 'minimax-v2'
+type EngineKind =
+  | 'random-v1'
+  | 'material-v1'
+  | 'minimax-v1'
+  | 'minimax-v2'
+  | 'positional-v1'
 
 type MatchState = {
   blackEngineKind: EngineKind
@@ -68,6 +73,7 @@ export default function ChessBoard() {
       { kind: 'material-v1', name: 'Material v1' },
       { kind: 'minimax-v1', name: 'Minimax 1' },
       { kind: 'minimax-v2', name: 'Minimax 2' },
+      { kind: 'positional-v1', name: 'Positional v1' },
     ],
     evalAfter: 0,
     fen: startFen,

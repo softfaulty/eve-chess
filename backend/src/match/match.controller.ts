@@ -32,7 +32,8 @@ export class MatchController {
       (body.kind === 'random-v1' ||
         body.kind === 'material-v1' ||
         body.kind === 'minimax-v1' ||
-        body.kind === 'minimax-v2')
+        body.kind === 'minimax-v2' ||
+        body.kind === 'positional-v1')
     ) {
       return this.matchService.setEngine(body.side, body.kind);
     }
