@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { Chess, Move } from 'chess.js';
+import { Chess, Move, Square } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 
 type LastMove = {
@@ -13,7 +13,8 @@ type EngineKind =
   | 'material-v1'
   | 'minimax-v1'
   | 'minimax-v2'
-  | 'positional-v1';
+  | 'positional-v1'
+  | 'positional-v2';
 type EngineSide = 'white' | 'black';
 
 const engineOptions: { kind: EngineKind; name: string }[] = [
@@ -22,6 +23,7 @@ const engineOptions: { kind: EngineKind; name: string }[] = [
   { kind: 'minimax-v1', name: 'Minimax v1' },
   { kind: 'minimax-v2', name: 'Minimax v2' },
   { kind: 'positional-v1', name: 'Positional v1' },
+  { kind: 'positional-v2', name: 'Positional v2' },
 ];
 
 export type MatchState = {
@@ -265,14 +267,18 @@ export class MatchService implements OnModuleInit {
     depth = 0,
     moves?: Move[],
   ): number {
-    if (engineKind === 'positional-v1') {
-      return this.evaluatePositional(depth, moves);
+    if (engineKind === 'positional-v1' || engineKind === 'positional-v2') {
+      return this.evaluatePositional(
+        depth,
+        moves,
+        engineKind === 'positional-v2',
+      );
     }
 
     return this.evaluatePosition(depth, moves?.length);
   }
 
-  private evaluatePositional(depth = 0, moves?: Move[]): number {
+  private evaluatePositional(depth = 0, moves?: Move[], isV2 = false): number {
     const legalMoves = moves ?? this.game.moves({ verbose: true });
 
     if (legalMoves.length === 0) {
@@ -327,7 +333,20 @@ export class MatchService implements OnModuleInit {
         score +=
           multiplier *
           (pieceValues[piece.type] +
-            pieceSquareTables[piece.type][tableRow][file]);
+            pieceSquareTables[piece.type][tableRow][file] * (isV2 ? 0.45 : 1));
+
+        if (
+          isV2 &&
+          piece.type !== 'k' &&
+          this.game.isAttacked(
+            `${String.fromCharCode(97 + file)}${8 - row}` as Square,
+            piece.color === 'w' ? 'b' : 'w',
+          )
+        ) {
+          score -=
+            multiplier *
+            Math.min(90, Math.floor(pieceValues[piece.type] * 0.18));
+        }
 
         if (piece.type === 'p') {
           if (piece.color === 'w') {
@@ -360,32 +379,42 @@ export class MatchService implements OnModuleInit {
       }
     }
 
-    score += legalMoves.length * (this.game.turn() === 'w' ? 3 : -3);
-    score += this.game.isCheck() ? (this.game.turn() === 'w' ? -35 : 35) : 0;
+    score += legalMoves.length * (this.game.turn() === 'w' ? 2 : -2);
+    score += this.game.isCheck()
+      ? this.game.turn() === 'w'
+        ? isV2
+          ? -55
+          : -35
+        : isV2
+          ? 55
+          : 35
+      : 0;
 
     for (const move of legalMoves) {
       if (centerSquares.has(move.to)) {
-        score += this.game.turn() === 'w' ? 4 : -4;
+        score += this.game.turn() === 'w' ? (isV2 ? 2 : 4) : isV2 ? -2 : -4;
       }
     }
 
-    score += whiteDevelopedMinorPieces * 12 - blackDevelopedMinorPieces * 12;
+    score +=
+      whiteDevelopedMinorPieces * (isV2 ? 8 : 12) -
+      blackDevelopedMinorPieces * (isV2 ? 8 : 12);
 
-    if (board[7][3]?.type !== 'q' && whiteDevelopedMinorPieces < 3) {
+    if (!isV2 && board[7][3]?.type !== 'q' && whiteDevelopedMinorPieces < 3) {
       score -= 25;
     }
 
-    if (board[0][3]?.type !== 'q' && blackDevelopedMinorPieces < 3) {
+    if (!isV2 && board[0][3]?.type !== 'q' && blackDevelopedMinorPieces < 3) {
       score += 25;
     }
 
     for (let file = 0; file < 8; file += 1) {
       if (whitePawnsByFile[file] > 1) {
-        score -= (whitePawnsByFile[file] - 1) * 18;
+        score -= (whitePawnsByFile[file] - 1) * (isV2 ? 10 : 18);
       }
 
       if (blackPawnsByFile[file] > 1) {
-        score += (blackPawnsByFile[file] - 1) * 18;
+        score += (blackPawnsByFile[file] - 1) * (isV2 ? 10 : 18);
       }
 
       for (const row of whitePawnRowsByFile[file]) {
@@ -402,11 +431,11 @@ export class MatchService implements OnModuleInit {
           );
 
         if (isIsolated) {
-          score -= 14;
+          score -= isV2 ? 8 : 14;
         }
 
         if (isPassed) {
-          score += 20 + (6 - row) * 6;
+          score += (isV2 ? 14 : 20) + (6 - row) * (isV2 ? 5 : 6);
         }
       }
 
@@ -424,11 +453,11 @@ export class MatchService implements OnModuleInit {
           );
 
         if (isIsolated) {
-          score += 14;
+          score += isV2 ? 8 : 14;
         }
 
         if (isPassed) {
-          score -= 20 + (row - 1) * 6;
+          score -= (isV2 ? 14 : 20) + (row - 1) * (isV2 ? 5 : 6);
         }
       }
     }
@@ -443,17 +472,17 @@ export class MatchService implements OnModuleInit {
 
         if (piece.color === 'w') {
           if (whitePawnsByFile[file] === 0 && blackPawnsByFile[file] === 0) {
-            score += 20;
+            score += isV2 ? 14 : 20;
           } else if (whitePawnsByFile[file] === 0) {
-            score += 10;
+            score += isV2 ? 7 : 10;
           }
         } else if (
           whitePawnsByFile[file] === 0 &&
           blackPawnsByFile[file] === 0
         ) {
-          score -= 20;
+          score -= isV2 ? 14 : 20;
         } else if (blackPawnsByFile[file] === 0) {
-          score -= 10;
+          score -= isV2 ? 7 : 10;
         }
       }
     }
@@ -484,10 +513,11 @@ export class MatchService implements OnModuleInit {
         }
       }
 
-      score += (3 - friendlyPawnShield) * (isWhiteKing ? -18 : 18);
+      score +=
+        (3 - friendlyPawnShield) * (isWhiteKing ? -1 : 1) * (isV2 ? 8 : 18);
     }
 
-    return score;
+    return Math.round(score);
   }
 
   private pickMove(moves: Move[]): Move {

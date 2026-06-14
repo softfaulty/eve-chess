@@ -1,9 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { Chess, Move } from 'chess.js';
+import { Chess, Move, Square } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 
-type BenchmarkEngine = 'random' | 'material' | 'minimax' | 'positional';
-type EngineKind = 'random-v1' | 'material-v1' | 'minimax-v2' | 'positional-v1';
+type BenchmarkEngine =
+  | 'random'
+  | 'material'
+  | 'minimax'
+  | 'positional'
+  | 'positional-v1'
+  | 'positional-v2';
+type EngineKind =
+  | 'random-v1'
+  | 'material-v1'
+  | 'minimax-v2'
+  | 'positional-v1'
+  | 'positional-v2';
 
 export type BenchmarkState = {
   averagePlyCount: number;
@@ -116,7 +127,7 @@ export class BenchmarkService {
     startedAt: null,
     totalGames: 0,
     turn: 'White',
-    whiteEngine: 'positional',
+    whiteEngine: 'positional-v2',
     winsBlack: 0,
     winsWhite: 0,
   };
@@ -167,14 +178,18 @@ export class BenchmarkService {
       body.white === 'random' ||
       body.white === 'material' ||
       body.white === 'minimax' ||
-      body.white === 'positional'
+      body.white === 'positional' ||
+      body.white === 'positional-v1' ||
+      body.white === 'positional-v2'
         ? body.white
         : 'minimax';
     const black =
       body.black === 'random' ||
       body.black === 'material' ||
       body.black === 'minimax' ||
-      body.black === 'positional'
+      body.black === 'positional' ||
+      body.black === 'positional-v1' ||
+      body.black === 'positional-v2'
         ? body.black
         : 'minimax';
     const totalGames = [10, 50, 100].includes(body.games ?? 0)
@@ -305,17 +320,21 @@ export class BenchmarkService {
         ? 'random-v1'
         : white === 'material'
           ? 'material-v1'
-          : white === 'positional'
+          : white === 'positional' || white === 'positional-v1'
             ? 'positional-v1'
-            : 'minimax-v2';
+            : white === 'positional-v2'
+              ? 'positional-v2'
+              : 'minimax-v2';
     const blackKind =
       black === 'random'
         ? 'random-v1'
         : black === 'material'
           ? 'material-v1'
-          : black === 'positional'
+          : black === 'positional' || black === 'positional-v1'
             ? 'positional-v1'
-            : 'minimax-v2';
+            : black === 'positional-v2'
+              ? 'positional-v2'
+              : 'minimax-v2';
     const savedGame = await this.prisma.game.create({
       data: {
         benchmarkId: this.activeRunId,
@@ -547,8 +566,13 @@ export class BenchmarkService {
     depth = 0,
     moves?: Move[],
   ) {
-    if (engineKind === 'positional-v1') {
-      return this.evaluatePositional(game, depth, moves);
+    if (engineKind === 'positional-v1' || engineKind === 'positional-v2') {
+      return this.evaluatePositional(
+        game,
+        depth,
+        moves,
+        engineKind === 'positional-v2',
+      );
     }
 
     return this.evaluatePosition(game, depth, moves?.length);
@@ -601,7 +625,12 @@ export class BenchmarkService {
     return material;
   }
 
-  private evaluatePositional(game: Chess, depth = 0, moves?: Move[]) {
+  private evaluatePositional(
+    game: Chess,
+    depth = 0,
+    moves?: Move[],
+    isV2 = false,
+  ) {
     const legalMoves = moves ?? game.moves({ verbose: true });
 
     if (legalMoves.length === 0) {
@@ -656,7 +685,20 @@ export class BenchmarkService {
         score +=
           multiplier *
           (pieceValues[piece.type] +
-            pieceSquareTables[piece.type][tableRow][file]);
+            pieceSquareTables[piece.type][tableRow][file] * (isV2 ? 0.45 : 1));
+
+        if (
+          isV2 &&
+          piece.type !== 'k' &&
+          game.isAttacked(
+            `${String.fromCharCode(97 + file)}${8 - row}` as Square,
+            piece.color === 'w' ? 'b' : 'w',
+          )
+        ) {
+          score -=
+            multiplier *
+            Math.min(90, Math.floor(pieceValues[piece.type] * 0.18));
+        }
 
         if (piece.type === 'p') {
           if (piece.color === 'w') {
@@ -689,32 +731,42 @@ export class BenchmarkService {
       }
     }
 
-    score += legalMoves.length * (game.turn() === 'w' ? 3 : -3);
-    score += game.isCheck() ? (game.turn() === 'w' ? -35 : 35) : 0;
+    score += legalMoves.length * (game.turn() === 'w' ? 2 : -2);
+    score += game.isCheck()
+      ? game.turn() === 'w'
+        ? isV2
+          ? -55
+          : -35
+        : isV2
+          ? 55
+          : 35
+      : 0;
 
     for (const move of legalMoves) {
       if (centerSquares.has(move.to)) {
-        score += game.turn() === 'w' ? 4 : -4;
+        score += game.turn() === 'w' ? (isV2 ? 2 : 4) : isV2 ? -2 : -4;
       }
     }
 
-    score += whiteDevelopedMinorPieces * 12 - blackDevelopedMinorPieces * 12;
+    score +=
+      whiteDevelopedMinorPieces * (isV2 ? 8 : 12) -
+      blackDevelopedMinorPieces * (isV2 ? 8 : 12);
 
-    if (board[7][3]?.type !== 'q' && whiteDevelopedMinorPieces < 3) {
+    if (!isV2 && board[7][3]?.type !== 'q' && whiteDevelopedMinorPieces < 3) {
       score -= 25;
     }
 
-    if (board[0][3]?.type !== 'q' && blackDevelopedMinorPieces < 3) {
+    if (!isV2 && board[0][3]?.type !== 'q' && blackDevelopedMinorPieces < 3) {
       score += 25;
     }
 
     for (let file = 0; file < 8; file += 1) {
       if (whitePawnsByFile[file] > 1) {
-        score -= (whitePawnsByFile[file] - 1) * 18;
+        score -= (whitePawnsByFile[file] - 1) * (isV2 ? 10 : 18);
       }
 
       if (blackPawnsByFile[file] > 1) {
-        score += (blackPawnsByFile[file] - 1) * 18;
+        score += (blackPawnsByFile[file] - 1) * (isV2 ? 10 : 18);
       }
 
       for (const row of whitePawnRowsByFile[file]) {
@@ -731,11 +783,11 @@ export class BenchmarkService {
           );
 
         if (isIsolated) {
-          score -= 14;
+          score -= isV2 ? 8 : 14;
         }
 
         if (isPassed) {
-          score += 20 + (6 - row) * 6;
+          score += (isV2 ? 14 : 20) + (6 - row) * (isV2 ? 5 : 6);
         }
       }
 
@@ -753,11 +805,11 @@ export class BenchmarkService {
           );
 
         if (isIsolated) {
-          score += 14;
+          score += isV2 ? 8 : 14;
         }
 
         if (isPassed) {
-          score -= 20 + (row - 1) * 6;
+          score -= (isV2 ? 14 : 20) + (row - 1) * (isV2 ? 5 : 6);
         }
       }
     }
@@ -772,17 +824,17 @@ export class BenchmarkService {
 
         if (piece.color === 'w') {
           if (whitePawnsByFile[file] === 0 && blackPawnsByFile[file] === 0) {
-            score += 20;
+            score += isV2 ? 14 : 20;
           } else if (whitePawnsByFile[file] === 0) {
-            score += 10;
+            score += isV2 ? 7 : 10;
           }
         } else if (
           whitePawnsByFile[file] === 0 &&
           blackPawnsByFile[file] === 0
         ) {
-          score -= 20;
+          score -= isV2 ? 14 : 20;
         } else if (blackPawnsByFile[file] === 0) {
-          score -= 10;
+          score -= isV2 ? 7 : 10;
         }
       }
     }
@@ -813,10 +865,11 @@ export class BenchmarkService {
         }
       }
 
-      score += (3 - friendlyPawnShield) * (isWhiteKing ? -18 : 18);
+      score +=
+        (3 - friendlyPawnShield) * (isWhiteKing ? -1 : 1) * (isV2 ? 8 : 18);
     }
 
-    return score;
+    return Math.round(score);
   }
 
   private orderMoves(moves: Move[]) {

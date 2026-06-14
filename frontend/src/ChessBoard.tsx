@@ -17,7 +17,14 @@ type EngineKind =
   | 'minimax-v1'
   | 'minimax-v2'
   | 'positional-v1'
-type BenchmarkEngine = 'random' | 'material' | 'minimax' | 'positional'
+  | 'positional-v2'
+type BenchmarkEngine =
+  | 'random'
+  | 'material'
+  | 'minimax'
+  | 'positional'
+  | 'positional-v1'
+  | 'positional-v2'
 
 type MatchState = {
   blackEngineKind: EngineKind
@@ -112,7 +119,8 @@ const benchmarkEngines: { kind: BenchmarkEngine; name: string }[] = [
   { kind: 'random', name: 'Random' },
   { kind: 'material', name: 'Material' },
   { kind: 'minimax', name: 'Minimax' },
-  { kind: 'positional', name: 'Positional' },
+  { kind: 'positional-v1', name: 'Positional v1' },
+  { kind: 'positional-v2', name: 'Positional v2' },
 ]
 
 export default function ChessBoard() {
@@ -134,12 +142,12 @@ export default function ChessBoard() {
     startedAt: null,
     totalGames: 0,
     turn: 'White',
-    whiteEngine: 'positional',
+    whiteEngine: 'positional-v2',
     winsBlack: 0,
     winsWhite: 0,
   })
   const [benchmarkWhite, setBenchmarkWhite] =
-    useState<BenchmarkEngine>('positional')
+    useState<BenchmarkEngine>('positional-v2')
   const [benchmarks, setBenchmarks] = useState<BenchmarkSummary[]>([])
   const [games, setGames] = useState<GameSummary[]>([])
   const [match, setMatch] = useState<MatchState>({
@@ -150,6 +158,7 @@ export default function ChessBoard() {
       { kind: 'minimax-v1', name: 'Minimax 1' },
       { kind: 'minimax-v2', name: 'Minimax 2' },
       { kind: 'positional-v1', name: 'Positional v1' },
+      { kind: 'positional-v2', name: 'Positional v2' },
     ],
     evalAfter: 0,
     fen: startFen,
