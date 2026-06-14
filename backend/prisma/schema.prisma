@@ -17,18 +17,20 @@ model Engine {
 }
 
 model Game {
-  id            String    @id @default(cuid())
+  id            String        @id @default(cuid())
+  benchmarkId   String?
   whiteEngineId String
   blackEngineId String
   result        String?
   status        String
   finalFen      String?
   pgn           String?
-  moveCount     Int       @default(0)
-  startedAt     DateTime  @default(now())
+  moveCount     Int           @default(0)
+  startedAt     DateTime      @default(now())
   endedAt       DateTime?
-  whiteEngine   Engine    @relation("WhiteEngineGames", fields: [whiteEngineId], references: [id])
-  blackEngine   Engine    @relation("BlackEngineGames", fields: [blackEngineId], references: [id])
+  whiteEngine   Engine        @relation("WhiteEngineGames", fields: [whiteEngineId], references: [id])
+  blackEngine   Engine        @relation("BlackEngineGames", fields: [blackEngineId], references: [id])
+  benchmark     BenchmarkRun? @relation(fields: [benchmarkId], references: [id])
   moves         Move[]
 }
 
@@ -45,4 +47,21 @@ model Move {
   game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@unique([gameId, ply])
+}
+
+model BenchmarkRun {
+  id              String    @id @default(cuid())
+  whiteEngine     String
+  blackEngine     String
+  totalGames      Int
+  completedGames  Int       @default(0)
+  winsWhite       Int       @default(0)
+  winsBlack       Int       @default(0)
+  draws           Int       @default(0)
+  averagePlyCount Float     @default(0)
+  swapColors      Boolean   @default(false)
+  isRunning       Boolean   @default(false)
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  games           Game[]
 }

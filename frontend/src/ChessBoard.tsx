@@ -7,8 +7,8 @@ import '@lichess-org/chessground/assets/chessground.base.css'
 import '@lichess-org/chessground/assets/chessground.brown.css'
 import '@lichess-org/chessground/assets/chessground.cburnett.css'
 
-const apiBaseUrl = 'http://localhost:3001'
-const socketUrl = 'http://localhost:3001'
+const apiBaseUrl = 'http://127.0.0.1:3001'
+const socketUrl = 'http://127.0.0.1:3001'
 const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
 type EngineKind =
@@ -17,6 +17,7 @@ type EngineKind =
   | 'minimax-v1'
   | 'minimax-v2'
   | 'positional-v1'
+type BenchmarkEngine = 'random' | 'material' | 'minimax' | 'positional'
 
 type MatchState = {
   blackEngineKind: EngineKind
@@ -62,9 +63,84 @@ type GameDetail = GameSummary & {
   pgn: string | null
 }
 
+type BenchmarkState = {
+  averagePlyCount: number
+  blackEngine: BenchmarkEngine
+  completedGames: number
+  currentGameId: string | null
+  draws: number
+  endedAt: string | null
+  fen: string
+  isBenchmarkRunning: boolean
+  lastMove: {
+    from: string
+    san: string
+    to: string
+  } | null
+  startedAt: string | null
+  totalGames: number
+  turn: 'White' | 'Black'
+  whiteEngine: BenchmarkEngine
+  winsBlack: number
+  winsWhite: number
+}
+
+type BenchmarkSummary = BenchmarkState & {
+  id: string
+  swapColors: boolean
+}
+
+type BenchmarkDetail = BenchmarkSummary & {
+  games: {
+    blackEngine: {
+      kind: string
+      name: string
+    }
+    id: string
+    moveCount: number
+    result: string | null
+    startedAt: string
+    status: string
+    whiteEngine: {
+      kind: string
+      name: string
+    }
+  }[]
+}
+
+const benchmarkEngines: { kind: BenchmarkEngine; name: string }[] = [
+  { kind: 'random', name: 'Random' },
+  { kind: 'material', name: 'Material' },
+  { kind: 'minimax', name: 'Minimax' },
+  { kind: 'positional', name: 'Positional' },
+]
+
 export default function ChessBoard() {
   const boardRef = useRef<HTMLDivElement | null>(null)
   const groundRef = useRef<Api | null>(null)
+  const [benchmarkBlack, setBenchmarkBlack] =
+    useState<BenchmarkEngine>('minimax')
+  const [benchmarkGames, setBenchmarkGames] = useState<10 | 50 | 100>(10)
+  const [benchmarkState, setBenchmarkState] = useState<BenchmarkState>({
+    averagePlyCount: 0,
+    blackEngine: 'minimax',
+    completedGames: 0,
+    currentGameId: null,
+    draws: 0,
+    endedAt: null,
+    fen: startFen,
+    isBenchmarkRunning: false,
+    lastMove: null,
+    startedAt: null,
+    totalGames: 0,
+    turn: 'White',
+    whiteEngine: 'positional',
+    winsBlack: 0,
+    winsWhite: 0,
+  })
+  const [benchmarkWhite, setBenchmarkWhite] =
+    useState<BenchmarkEngine>('positional')
+  const [benchmarks, setBenchmarks] = useState<BenchmarkSummary[]>([])
   const [games, setGames] = useState<GameSummary[]>([])
   const [match, setMatch] = useState<MatchState>({
     blackEngineKind: 'minimax-v2',
@@ -86,7 +162,10 @@ export default function ChessBoard() {
     turn: 'White',
     whiteEngineKind: 'minimax-v2',
   })
+  const [selectedBenchmark, setSelectedBenchmark] =
+    useState<BenchmarkDetail | null>(null)
   const [selectedGame, setSelectedGame] = useState<GameDetail | null>(null)
+  const [swapBenchmarkColors, setSwapBenchmarkColors] = useState(true)
 
   const setMatchState = useCallback((nextMatch: MatchState) => {
     groundRef.current?.set({
@@ -106,32 +185,136 @@ export default function ChessBoard() {
   }, [])
 
   const loadMatch = useCallback(async (path = 'state') => {
-    const response = await fetch(`${apiBaseUrl}/match/${path}`, {
-      method: path === 'state' ? 'GET' : 'POST',
-    })
-    await response.json()
+    try {
+      const response = await fetch(`${apiBaseUrl}/match/${path}`, {
+        method: path === 'state' ? 'GET' : 'POST',
+      })
+      await response.json()
+    } catch {
+      return
+    }
   }, [])
 
   const setEngine = useCallback(async (side: 'white' | 'black', kind: EngineKind) => {
-    const response = await fetch(`${apiBaseUrl}/match/engine`, {
-      body: JSON.stringify({ kind, side }),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      method: 'POST',
-    })
+    try {
+      const response = await fetch(`${apiBaseUrl}/match/engine`, {
+        body: JSON.stringify({ kind, side }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
 
-    setMatchState((await response.json()) as MatchState)
+      setMatchState((await response.json()) as MatchState)
+    } catch {
+      return
+    }
   }, [setMatchState])
 
   const loadGames = useCallback(async () => {
-    const response = await fetch(`${apiBaseUrl}/games`)
-    setGames((await response.json()) as GameSummary[])
+    try {
+      const response = await fetch(`${apiBaseUrl}/games`)
+      setGames((await response.json()) as GameSummary[])
+    } catch {
+      return
+    }
   }, [])
 
+  const loadBenchmarkState = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/benchmark/state`)
+      const nextBenchmarkState = (await response.json()) as BenchmarkState
+
+      if (nextBenchmarkState.isBenchmarkRunning) {
+        groundRef.current?.set({
+          fen: nextBenchmarkState.fen,
+          lastMove: nextBenchmarkState.lastMove
+            ? ([
+                nextBenchmarkState.lastMove.from,
+                nextBenchmarkState.lastMove.to,
+              ] as Key[])
+            : undefined,
+          movable: {
+            color: undefined,
+            free: false,
+          },
+          turnColor: nextBenchmarkState.turn === 'White' ? 'white' : 'black',
+          viewOnly: true,
+        })
+      }
+
+      setBenchmarkState(nextBenchmarkState)
+    } catch {
+      return
+    }
+  }, [])
+
+  const loadBenchmarks = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/benchmarks`)
+      setBenchmarks((await response.json()) as BenchmarkSummary[])
+    } catch {
+      return
+    }
+  }, [])
+
+  const loadBenchmark = useCallback(async (id: string) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/benchmarks/${id}`)
+      setSelectedBenchmark((await response.json()) as BenchmarkDetail)
+    } catch {
+      return
+    }
+  }, [])
+
+  const startBenchmark = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/benchmark/start`, {
+        body: JSON.stringify({
+          black: benchmarkBlack,
+          games: benchmarkGames,
+          swapColors: swapBenchmarkColors,
+          white: benchmarkWhite,
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+
+      setBenchmarkState((await response.json()) as BenchmarkState)
+      void loadBenchmarks()
+    } catch {
+      return
+    }
+  }, [
+    benchmarkBlack,
+    benchmarkGames,
+    benchmarkWhite,
+    loadBenchmarks,
+    swapBenchmarkColors,
+  ])
+
+  const stopBenchmark = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/benchmark/stop`, {
+        method: 'POST',
+      })
+
+      setBenchmarkState((await response.json()) as BenchmarkState)
+      void loadBenchmarks()
+    } catch {
+      return
+    }
+  }, [loadBenchmarks])
+
   const loadGame = useCallback(async (id: string) => {
-    const response = await fetch(`${apiBaseUrl}/games/${id}`)
-    setSelectedGame((await response.json()) as GameDetail)
+    try {
+      const response = await fetch(`${apiBaseUrl}/games/${id}`)
+      setSelectedGame((await response.json()) as GameDetail)
+    } catch {
+      return
+    }
   }, [])
 
   useEffect(() => {
@@ -164,13 +347,15 @@ export default function ChessBoard() {
     })
 
     socket.on('match/state', (nextMatch: MatchState) => {
-      setMatchState(nextMatch)
+      if (!benchmarkState.isBenchmarkRunning) {
+        setMatchState(nextMatch)
+      }
     })
 
     return () => {
       socket.disconnect()
     }
-  }, [setMatchState])
+  }, [benchmarkState.isBenchmarkRunning, setMatchState])
 
   useEffect(() => {
     const firstLoad = setTimeout(() => {
@@ -185,6 +370,22 @@ export default function ChessBoard() {
       clearInterval(interval)
     }
   }, [loadGames])
+
+  useEffect(() => {
+    const firstLoad = setTimeout(() => {
+      void loadBenchmarkState()
+      void loadBenchmarks()
+    }, 0)
+    const interval = setInterval(() => {
+      void loadBenchmarkState()
+      void loadBenchmarks()
+    }, benchmarkState.isBenchmarkRunning ? 150 : 1000)
+
+    return () => {
+      clearTimeout(firstLoad)
+      clearInterval(interval)
+    }
+  }, [benchmarkState.isBenchmarkRunning, loadBenchmarkState, loadBenchmarks])
 
   return (
     <main className="chess-page">
@@ -318,6 +519,189 @@ export default function ChessBoard() {
               ))
             )}
           </div>
+
+          <section className="benchmark-panel" aria-label="Benchmark mode">
+            <h2>Benchmark</h2>
+
+            <div className="engine-controls">
+              <label>
+                <span>White</span>
+                <select
+                  value={benchmarkWhite}
+                  onChange={(event) => {
+                    setBenchmarkWhite(event.target.value as BenchmarkEngine)
+                  }}
+                >
+                  {benchmarkEngines.map((engine) => (
+                    <option key={engine.kind} value={engine.kind}>
+                      {engine.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span>Black</span>
+                <select
+                  value={benchmarkBlack}
+                  onChange={(event) => {
+                    setBenchmarkBlack(event.target.value as BenchmarkEngine)
+                  }}
+                >
+                  {benchmarkEngines.map((engine) => (
+                    <option key={engine.kind} value={engine.kind}>
+                      {engine.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span>Games</span>
+                <select
+                  value={benchmarkGames}
+                  onChange={(event) => {
+                    setBenchmarkGames(
+                      Number(event.target.value) as 10 | 50 | 100,
+                    )
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
+
+              <label className="check-row">
+                <input
+                  checked={swapBenchmarkColors}
+                  type="checkbox"
+                  onChange={(event) => {
+                    setSwapBenchmarkColors(event.target.checked)
+                  }}
+                />
+                <span>Swap colors</span>
+              </label>
+            </div>
+
+            <div className="controls">
+              <button type="button" onClick={() => void startBenchmark()}>
+                Start benchmark
+              </button>
+              <button type="button" onClick={() => void stopBenchmark()}>
+                Stop benchmark
+              </button>
+            </div>
+
+            <dl className="game-info">
+              <div>
+                <dt>Status</dt>
+                <dd>
+                  {benchmarkState.isBenchmarkRunning ? 'Running' : 'Stopped'}
+                </dd>
+              </div>
+              <div>
+                <dt>Progress</dt>
+                <dd>
+                  {benchmarkState.completedGames} / {benchmarkState.totalGames}
+                </dd>
+              </div>
+              <div>
+                <dt>White wins</dt>
+                <dd>{benchmarkState.winsWhite}</dd>
+              </div>
+              <div>
+                <dt>Black wins</dt>
+                <dd>{benchmarkState.winsBlack}</dd>
+              </div>
+              <div>
+                <dt>Draws</dt>
+                <dd>{benchmarkState.draws}</dd>
+              </div>
+              <div>
+                <dt>Average ply</dt>
+                <dd>{benchmarkState.averagePlyCount.toFixed(1)}</dd>
+              </div>
+            </dl>
+
+            <h2>Recent Benchmarks</h2>
+            <div className="game-list">
+              {benchmarks.length === 0 ? (
+                <p>No benchmark runs yet.</p>
+              ) : (
+                benchmarks.map((benchmark) => (
+                  <button
+                    key={benchmark.id}
+                    type="button"
+                    onClick={() => void loadBenchmark(benchmark.id)}
+                  >
+                    <span>
+                      {benchmark.whiteEngine} vs {benchmark.blackEngine}
+                    </span>
+                    <span>
+                      {benchmark.completedGames} / {benchmark.totalGames} games
+                    </span>
+                    <span>
+                      W {benchmark.winsWhite} / B {benchmark.winsBlack} / D{' '}
+                      {benchmark.draws}
+                    </span>
+                    <span>avg ply {benchmark.averagePlyCount.toFixed(1)}</span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {selectedBenchmark ? (
+              <div className="selected-game">
+                <h2>Benchmark Detail</h2>
+                <dl className="game-info">
+                  <div>
+                    <dt>Engines</dt>
+                    <dd>
+                      {selectedBenchmark.whiteEngine} vs{' '}
+                      {selectedBenchmark.blackEngine}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Score</dt>
+                    <dd>
+                      W {selectedBenchmark.winsWhite} / B{' '}
+                      {selectedBenchmark.winsBlack} / D{' '}
+                      {selectedBenchmark.draws}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Completed</dt>
+                    <dd>
+                      {selectedBenchmark.completedGames} /{' '}
+                      {selectedBenchmark.totalGames}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Average ply</dt>
+                    <dd>{selectedBenchmark.averagePlyCount.toFixed(1)}</dd>
+                  </div>
+                </dl>
+
+                <div className="game-list">
+                  {selectedBenchmark.games.map((game) => (
+                    <button
+                      key={game.id}
+                      type="button"
+                      onClick={() => void loadGame(game.id)}
+                    >
+                      <span>{game.result ?? 'In progress'}</span>
+                      <span>
+                        {game.whiteEngine.name} vs {game.blackEngine.name}
+                      </span>
+                      <span>{game.status}</span>
+                      <span>{game.moveCount} moves</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
 
           {selectedGame ? (
             <div className="selected-game">
